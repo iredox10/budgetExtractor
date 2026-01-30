@@ -77,6 +77,7 @@ class MdaExpenditureRow:
     recurrent_amount: ExtractedField[float]
     capital_amount: ExtractedField[float]
     total_amount: ExtractedField[float]
+    administrative_units: list["AdministrativeUnit"] = field(default_factory=list)
     page: Optional[int] = None
     line_text: Optional[str] = None
 
@@ -123,6 +124,25 @@ class ExtractionResult:
     revenue_breakdown: list[RevenueRow]
     expenditure_economic: list[EconomicExpenditureRow]
     expenditure_mda: list[MdaExpenditureRow]
+    administrative_units: list["AdministrativeUnit"]
     programme_projects: list[ProgrammeRow]
     appropriation_law: AppropriationLaw
     assumptions: list[AssumptionRow]
+
+
+@dataclass
+class AmountItem:
+    label: str
+    amount: ExtractedField[float]
+
+
+@dataclass
+class AdministrativeUnit:
+    parent_code: ExtractedField[str]
+    parent_name: ExtractedField[str]
+    unit_code: ExtractedField[str]
+    unit_name: ExtractedField[str]
+    amounts: list[AmountItem]
+    page: int
+    line_text: str
+    table_type: str

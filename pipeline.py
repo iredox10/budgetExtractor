@@ -5,6 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+from engine.admin_units import extract_admin_units
 from engine.extract_text import extract_fulltext, get_page_count, split_pages
 from engine.metrics import compute_page_metrics
 from engine.schema import (
@@ -14,9 +15,10 @@ from engine.schema import (
     ExtractionError,
     ExtractionResult,
     ExtractedField,
+    MdaExpenditureRow,
 )
 from engine.utils import ensure_dir
-from engine.validation import validate_page_count
+from engine.validation import validate_admin_unit_codes, validate_page_count
 
 
 ENGINE_VERSION = "0.1.0"
@@ -66,10 +68,32 @@ def build_default_result(
         revenue_breakdown=[],
         expenditure_economic=[],
         expenditure_mda=[],
+        administrative_units=[],
         programme_projects=[],
         appropriation_law=appropriation_law,
         assumptions=[],
     )
+
+
+def build_mda_groups(admin_units: list) -> list[MdaExpenditureRow]:
+    parents: dict[str, MdaExpenditureRow] = {}
+    for unit in admin_units:
+        parent_code = unit.parent_code.value
+        parent_name = unit.parent_name.value
+        if not parent_code or not parent_name:
+            continue
+        if parent_code not in parents:
+            parents[parent_code] = MdaExpenditureRow(
+                mda_code=ExtractedField.with_value(parent_code),
+                mda_name=ExtractedField.with_value(parent_name),
+                recurrent_amount=ExtractedField.null("not_extracted"),
+                capital_amount=ExtractedField.null("not_extracted"),
+                total_amount=ExtractedField.null("not_extracted"),
+                administrative_units=[],
+            )
+        parents[parent_code].administrative_units.append(unit)
+
+    return [parents[key] for key in sorted(parents.keys())]
 
 
 def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> Path:
@@ -101,6 +125,7 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             )
 
     pages: list[str] = []
+    admin_units = []
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
@@ -125,7 +150,15 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             for err in validation_errors
         )
 
+        admin_units, _ = extract_admin_units(pages)
+        errors.extend(
+            ExtractionError(code=err.code, message=err.message)
+            for err in validate_admin_unit_codes(admin_units)
+        )
+
     result = build_default_result(pdf_path, page_count, errors)
+    result.administrative_units = admin_units
+    result.expenditure_mda = build_mda_groups(admin_units)
     output_path.write_text(
         json.dumps(asdict(result), ensure_ascii=True, indent=2),
         encoding="utf-8",
