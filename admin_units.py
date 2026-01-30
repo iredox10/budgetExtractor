@@ -41,6 +41,16 @@ class HeaderContext:
     table_type: str
 
 
+@dataclass
+class ParentRow:
+    code: str
+    name: str
+    amounts: list[AmountItem]
+    page: int
+    line_text: str
+    table_type: str
+
+
 def is_header_line(line: str) -> bool:
     lower = line.lower()
     if "code" not in lower:
@@ -189,6 +199,32 @@ def parse_row(line: str) -> tuple[str, str, list[str]] | None:
     return code, name, amount_columns
 
 
+def build_amount_items(
+    labels: list[str],
+    amount_columns: list[str],
+    page_index: int,
+    line_text: str,
+) -> list[AmountItem]:
+    items: list[AmountItem] = []
+    if not labels:
+        labels = [f"amount_{i + 1}" for i in range(len(amount_columns))]
+
+    max_len = max(len(labels), len(amount_columns))
+    for idx in range(max_len):
+        label = labels[idx] if idx < len(labels) else f"amount_{idx + 1}"
+        raw_value = amount_columns[idx] if idx < len(amount_columns) else ""
+        parsed_value = parse_amount(raw_value)
+        if parsed_value is None:
+            amount_field = ExtractedField.null("missing_amount")
+        else:
+            amount_field = ExtractedField.with_value(
+                parsed_value,
+                provenance=[Provenance(page=page_index, line_text=line_text)],
+            )
+        items.append(AmountItem(label=label, amount=amount_field))
+    return items
+
+
 def is_parent_code(code: str) -> bool:
     return bool(PARENT_CODE_RE.match(code))
 
@@ -204,8 +240,11 @@ def find_parent_code(unit_code: str, parent_codes: list[str]) -> str | None:
     return sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]
 
 
-def extract_admin_units(pages: list[str]) -> tuple[list[AdministrativeUnit], dict[str, str]]:
+def extract_admin_units(
+    pages: list[str],
+) -> tuple[list[AdministrativeUnit], list[ParentRow], dict[str, str]]:
     admin_units: list[AdministrativeUnit] = []
+    parent_rows: list[ParentRow] = []
     parents: dict[str, str] = {}
     seen_units: set[tuple[str, str]] = set()
     allowed_table_types = {"expenditure_mda", "revenue_mda", "expenditure_admin"}
@@ -261,29 +300,37 @@ def extract_admin_units(pages: list[str]) -> tuple[list[AdministrativeUnit], dic
 
                 if is_parent_code(code):
                     parents[code] = name
+                    amounts = build_amount_items(
+                        header_context.labels,
+                        amount_columns,
+                        page_index,
+                        line.strip(),
+                    )
+                    if not any(item.amount.value is not None for item in amounts):
+                        line_index += 1
+                        continue
+                    if any(item.amount.value is None for item in amounts):
+                        line_index += 1
+                        continue
+                    parent_rows.append(
+                        ParentRow(
+                            code=code,
+                            name=name,
+                            amounts=amounts,
+                            page=page_index,
+                            line_text=line.strip(),
+                            table_type=header_context.table_type,
+                        )
+                    )
                     line_index += 1
                     continue
 
-                amounts: list[AmountItem] = []
-                labels = header_context.labels
-                if not labels:
-                    labels = [f"amount_{i + 1}" for i in range(len(amount_columns))]
-
-                max_len = max(len(labels), len(amount_columns))
-                for idx in range(max_len):
-                    label = labels[idx] if idx < len(labels) else f"amount_{idx + 1}"
-                    raw_value = amount_columns[idx] if idx < len(amount_columns) else ""
-                    parsed_value = parse_amount(raw_value)
-                    if parsed_value is None:
-                        amount_field = ExtractedField.null("missing_amount")
-                    else:
-                        amount_field = ExtractedField.with_value(
-                            parsed_value,
-                            provenance=[
-                                Provenance(page=page_index, line_text=line.strip())
-                            ],
-                        )
-                    amounts.append(AmountItem(label=label, amount=amount_field))
+                amounts = build_amount_items(
+                    header_context.labels,
+                    amount_columns,
+                    page_index,
+                    line.strip(),
+                )
 
                 if not any(item.amount.value is not None for item in amounts):
                     line_index += 1
@@ -319,4 +366,4 @@ def extract_admin_units(pages: list[str]) -> tuple[list[AdministrativeUnit], dic
 
             line_index += 1
 
-    return admin_units, parents
+    return admin_units, parent_rows, parents

@@ -5,7 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from engine.admin_units import extract_admin_units
+from engine.admin_units import ParentRow, extract_admin_units
 from engine.extract_text import extract_fulltext, get_page_count, split_pages
 from engine.metrics import compute_page_metrics
 from engine.schema import (
@@ -18,7 +18,11 @@ from engine.schema import (
     MdaExpenditureRow,
 )
 from engine.utils import ensure_dir
-from engine.validation import validate_admin_unit_codes, validate_page_count
+from engine.validation import (
+    validate_admin_unit_codes,
+    validate_mda_reconciliation,
+    validate_page_count,
+)
 
 
 ENGINE_VERSION = "0.1.0"
@@ -75,8 +79,38 @@ def build_default_result(
     )
 
 
-def build_mda_groups(admin_units: list) -> list[MdaExpenditureRow]:
+def build_mda_groups(
+    admin_units: list,
+    parent_rows: list[ParentRow],
+) -> list[MdaExpenditureRow]:
     parents: dict[str, MdaExpenditureRow] = {}
+
+    for parent in parent_rows:
+        if parent.table_type != "expenditure_mda":
+            continue
+        recurrent = next(
+            (item.amount for item in parent.amounts if item.label == "total_recurrent"),
+            ExtractedField.null("not_extracted"),
+        )
+        capital = next(
+            (item.amount for item in parent.amounts if item.label == "capital"),
+            ExtractedField.null("not_extracted"),
+        )
+        total = next(
+            (item.amount for item in parent.amounts if item.label == "total_expenditure"),
+            ExtractedField.null("not_extracted"),
+        )
+        parents[parent.code] = MdaExpenditureRow(
+            mda_code=ExtractedField.with_value(parent.code),
+            mda_name=ExtractedField.with_value(parent.name),
+            recurrent_amount=recurrent,
+            capital_amount=capital,
+            total_amount=total,
+            administrative_units=[],
+            page=parent.page,
+            line_text=parent.line_text,
+        )
+
     for unit in admin_units:
         parent_code = unit.parent_code.value
         parent_name = unit.parent_name.value
@@ -126,6 +160,7 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
 
     pages: list[str] = []
     admin_units = []
+    parent_rows: list[ParentRow] = []
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
@@ -150,15 +185,19 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             for err in validation_errors
         )
 
-        admin_units, _ = extract_admin_units(pages)
+        admin_units, parent_rows, _ = extract_admin_units(pages)
         errors.extend(
             ExtractionError(code=err.code, message=err.message)
             for err in validate_admin_unit_codes(admin_units)
         )
+        errors.extend(
+            ExtractionError(code=err.code, message=err.message)
+            for err in validate_mda_reconciliation(parent_rows, admin_units)
+        )
 
     result = build_default_result(pdf_path, page_count, errors)
     result.administrative_units = admin_units
-    result.expenditure_mda = build_mda_groups(admin_units)
+    result.expenditure_mda = build_mda_groups(admin_units, parent_rows)
     output_path.write_text(
         json.dumps(asdict(result), ensure_ascii=True, indent=2),
         encoding="utf-8",
