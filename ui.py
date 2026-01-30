@@ -1,9 +1,25 @@
 from __future__ import annotations
 
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from typing import TYPE_CHECKING
+
+_tk_error: Exception | None = None
+
+if TYPE_CHECKING:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+else:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
+        tk = None
+        filedialog = None
+        messagebox = None
+        _tk_error = exc
+    else:
+        _tk_error = None
 
 from engine.pipeline import run_pipeline
 
@@ -101,21 +117,22 @@ class EngineUI:
             messagebox.showerror("Missing input", "Please select a PDF file.")
             return
 
+        pdf_path = self.pdf_path
+        if pdf_path is None:
+            messagebox.showerror("Missing input", "Please select a PDF file.")
+            return
+
         self.run_button.config(state=tk.DISABLED)
         self.set_status("Running...")
         self.log("Starting extraction...")
 
-        thread = threading.Thread(target=self._run_pipeline, daemon=True)
+        thread = threading.Thread(target=self._run_pipeline, args=(pdf_path,), daemon=True)
         thread.start()
 
-    def _run_pipeline(self) -> None:
+    def _run_pipeline(self, pdf_path: Path) -> None:
         try:
-            output_dir = self.output_dir or self._default_output_dir(self.pdf_path)
-            output_path = run_pipeline(
-                self.pdf_path,
-                output_dir,
-                overwrite=self.overwrite_var.get(),
-            )
+            output_dir = self.output_dir or self._default_output_dir(pdf_path)
+            output_path = run_pipeline(pdf_path, output_dir, overwrite=self.overwrite_var.get())
             self.root.after(0, self._on_success, output_path, output_dir)
         except Exception as exc:  # noqa: BLE001
             self.root.after(0, self._on_error, exc)
@@ -138,6 +155,10 @@ class EngineUI:
 
 
 def main() -> None:
+    if tk is None:
+        raise SystemExit(
+            "tkinter is not available. Install python3-tk (Ubuntu/Debian) or use the CLI."
+        ) from _tk_error
     root = tk.Tk()
     EngineUI(root)
     root.mainloop()

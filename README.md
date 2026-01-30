@@ -5,6 +5,7 @@ Deterministic, fail-closed extraction pipeline for single-state budget PDFs.
 ## Prerequisites
 - Python 3.10+
 - Poppler tools: `pdfinfo` and `pdftotext`
+- Tkinter for UI: `python3-tk` (Ubuntu/Debian)
 
 ## Run
 From the repo root:
@@ -27,6 +28,12 @@ python -m engine.ui
 ```
 
 Use the UI to select a PDF and an output folder, then run extraction.
+
+If you run from outside the repo root:
+
+```bash
+python /home/iredox/Desktop/scrapers/budgets/run_ui.py
+```
 
 ## Output
 - `output.json` (contract-shaped output with null+reason for missing fields)
