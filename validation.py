@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from engine.admin_units import ParentRow
-from engine.schema import AdministrativeUnit
+from engine.schema import AdministrativeUnit, EconomicExpenditureRow, RevenueRow
 
 
 @dataclass
@@ -99,4 +99,28 @@ def validate_mda_reconciliation(
                     )
                 )
 
+    return errors
+
+
+def validate_economic_rows(
+    revenue_rows: Iterable[RevenueRow],
+    expenditure_rows: Iterable[EconomicExpenditureRow],
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    for row in revenue_rows:
+        if row.amount.value is None:
+            errors.append(
+                ValidationError(
+                    code="economic_amount_missing",
+                    message=f"revenue row missing amount: {row.line_text}",
+                )
+            )
+    for row in expenditure_rows:
+        if row.amount.value is None:
+            errors.append(
+                ValidationError(
+                    code="economic_amount_missing",
+                    message=f"expenditure row missing amount: {row.line_text}",
+                )
+            )
     return errors

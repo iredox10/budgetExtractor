@@ -53,6 +53,7 @@ class BudgetTotals:
 
 @dataclass
 class RevenueRow:
+    code: ExtractedField[str]
     category: ExtractedField[str]
     subcategory: ExtractedField[str]
     amount: ExtractedField[float]
@@ -63,6 +64,7 @@ class RevenueRow:
 
 @dataclass
 class EconomicExpenditureRow:
+    code: ExtractedField[str]
     category: ExtractedField[str]
     subcategory: ExtractedField[str]
     amount: ExtractedField[float]

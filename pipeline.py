@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 from engine.admin_units import ParentRow, extract_admin_units
+from engine.economic import extract_economic_rows
 from engine.extract_text import extract_fulltext, get_page_count, split_pages
 from engine.metrics import compute_page_metrics
 from engine.schema import (
@@ -17,9 +19,11 @@ from engine.schema import (
     ExtractedField,
     MdaExpenditureRow,
 )
+from engine.summary import extract_budget_summary
 from engine.utils import ensure_dir
 from engine.validation import (
     validate_admin_unit_codes,
+    validate_economic_rows,
     validate_mda_reconciliation,
     validate_page_count,
 )
@@ -146,6 +150,10 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     output_path = output_dir / "output.json"
 
     errors: list[ExtractionError] = []
+    target_year = ""
+    year_match = re.search(r"(20\d{2})", pdf_path.name)
+    if year_match:
+        target_year = year_match.group(1)
 
     page_count, page_error = get_page_count(pdf_path)
     if page_error:
@@ -161,6 +169,9 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     pages: list[str] = []
     admin_units = []
     parent_rows: list[ParentRow] = []
+    revenue_rows = []
+    expenditure_rows = []
+    budget_totals = None
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
@@ -195,9 +206,21 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             for err in validate_mda_reconciliation(parent_rows, admin_units)
         )
 
+        if target_year:
+            revenue_rows, expenditure_rows = extract_economic_rows(pages, target_year)
+            errors.extend(
+                ExtractionError(code=err.code, message=err.message)
+                for err in validate_economic_rows(revenue_rows, expenditure_rows)
+            )
+            budget_totals = extract_budget_summary(pages, target_year)
+
     result = build_default_result(pdf_path, page_count, errors)
+    if budget_totals is not None:
+        result.budget_totals = budget_totals
     result.administrative_units = admin_units
     result.expenditure_mda = build_mda_groups(admin_units, parent_rows)
+    result.revenue_breakdown = revenue_rows
+    result.expenditure_economic = expenditure_rows
     output_path.write_text(
         json.dumps(asdict(result), ensure_ascii=True, indent=2),
         encoding="utf-8",
