@@ -48,6 +48,16 @@ class EconomicContext:
     labels: list[str]
 
 
+@dataclass
+class EconomicConflict:
+    table_type: str
+    code: str
+    first_amount: float
+    second_amount: float
+    page: int
+    line_text: str
+
+
 def split_columns(line: str) -> list[str]:
     return [col.strip() for col in re.split(r"\s{2,}", line.rstrip()) if col.strip()]
 
@@ -171,45 +181,42 @@ def has_alpha(text: str) -> bool:
 def extract_economic_rows(
     pages: list[str],
     target_year: str,
-) -> tuple[list[RevenueRow], list[EconomicExpenditureRow]]:
+) -> tuple[list[RevenueRow], list[EconomicExpenditureRow], list[EconomicConflict]]:
     revenue_rows: list[RevenueRow] = []
     expenditure_rows: list[EconomicExpenditureRow] = []
+    conflicts: list[EconomicConflict] = []
+    seen_amounts: dict[str, dict[str, float]] = {
+        "revenue": {},
+        "expenditure": {},
+    }
 
     context: Optional[EconomicContext] = None
     current_section: Optional[str] = None
-    last_section: Optional[str] = None
 
     for page_index, page_text in enumerate(pages, start=1):
         lines = page_text.splitlines()
         context = None
+        current_section = None
         line_index = 0
         while line_index < len(lines):
             line = lines[line_index]
 
             if REVENUE_HEADING_RE.search(line):
                 current_section = "revenue"
-                last_section = "revenue"
                 context = None
                 line_index += 1
                 continue
 
             if EXPENDITURE_HEADING_RE.search(line):
                 current_section = "expenditure"
-                last_section = "expenditure"
                 context = None
                 line_index += 1
                 continue
 
-            if "Approved Budget -" in line and not HEADER_RE.search(line):
-                if not REVENUE_HEADING_RE.search(line) and not EXPENDITURE_HEADING_RE.search(line):
-                    current_section = None
-                    context = None
+            if HEADER_RE.search(line):
+                if current_section is None:
                     line_index += 1
                     continue
-
-            if HEADER_RE.search(line):
-                if current_section is None and last_section is not None:
-                    current_section = last_section
                 header_lines = []
                 if line_index - 1 >= 0:
                     prev_line = lines[line_index - 1]
@@ -253,6 +260,25 @@ def extract_economic_rows(
                 if amount_value is None:
                     line_index += 1
                     continue
+                table_key = context.table_type
+                if table_key not in seen_amounts:
+                    seen_amounts[table_key] = {}
+                seen_for_table = seen_amounts[table_key]
+                if code in seen_for_table:
+                    if abs(seen_for_table[code] - amount_value) > 1.0:
+                        conflicts.append(
+                            EconomicConflict(
+                                table_type=table_key,
+                                code=code,
+                                first_amount=seen_for_table[code],
+                                second_amount=amount_value,
+                                page=page_index,
+                                line_text=line.strip(),
+                            )
+                        )
+                    line_index += 1
+                    continue
+                seen_for_table[code] = amount_value
                 amount_field = ExtractedField.with_value(
                     amount_value,
                     provenance=[Provenance(page=page_index, line_text=line.strip())],
@@ -286,4 +312,4 @@ def extract_economic_rows(
 
             line_index += 1
 
-    return revenue_rows, expenditure_rows
+    return revenue_rows, expenditure_rows, conflicts

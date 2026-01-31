@@ -23,7 +23,10 @@ from engine.summary import extract_budget_summary
 from engine.utils import ensure_dir
 from engine.validation import (
     validate_admin_unit_codes,
+    validate_economic_conflicts,
     validate_economic_rows,
+    validate_economic_duplicates,
+    validate_economic_hierarchy,
     validate_mda_reconciliation,
     validate_page_count,
 )
@@ -207,10 +210,24 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
         )
 
         if target_year:
-            revenue_rows, expenditure_rows = extract_economic_rows(pages, target_year)
+            revenue_rows, expenditure_rows, conflicts = extract_economic_rows(
+                pages, target_year
+            )
             errors.extend(
                 ExtractionError(code=err.code, message=err.message)
                 for err in validate_economic_rows(revenue_rows, expenditure_rows)
+            )
+            errors.extend(
+                ExtractionError(code=err.code, message=err.message)
+                for err in validate_economic_duplicates(revenue_rows, expenditure_rows)
+            )
+            errors.extend(
+                ExtractionError(code=err.code, message=err.message)
+                for err in validate_economic_conflicts(conflicts)
+            )
+            errors.extend(
+                ExtractionError(code=err.code, message=err.message)
+                for err in validate_economic_hierarchy(revenue_rows, expenditure_rows)
             )
             budget_totals = extract_budget_summary(pages, target_year)
 
