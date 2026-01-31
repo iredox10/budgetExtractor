@@ -9,7 +9,9 @@ from pathlib import Path
 from engine.admin_units import ParentRow, extract_admin_units
 from engine.economic import extract_economic_rows
 from engine.extract_text import extract_fulltext, get_page_count, split_pages
+from engine.metadata import extract_metadata
 from engine.metrics import compute_page_metrics
+from engine.programme_projects import extract_programme_projects
 from engine.schema import (
     AppropriationLaw,
     BudgetTotals,
@@ -27,6 +29,7 @@ from engine.validation import (
     validate_economic_rows,
     validate_economic_duplicates,
     validate_economic_hierarchy,
+    validate_programme_rows,
     validate_mda_reconciliation,
     validate_page_count,
 )
@@ -174,7 +177,9 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     parent_rows: list[ParentRow] = []
     revenue_rows = []
     expenditure_rows = []
+    programme_rows = []
     budget_totals = None
+    metadata_fields = None
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
@@ -198,6 +203,8 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             ExtractionError(code=err.code, message=err.message)
             for err in validation_errors
         )
+
+        metadata_fields = extract_metadata(pdf_path, pages)
 
         admin_units, parent_rows, _ = extract_admin_units(pages)
         errors.extend(
@@ -230,14 +237,26 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
                 for err in validate_economic_hierarchy(revenue_rows, expenditure_rows)
             )
             budget_totals = extract_budget_summary(pages, target_year)
+            programme_rows = extract_programme_projects(pages, target_year)
+            errors.extend(
+                ExtractionError(code=err.code, message=err.message)
+                for err in validate_programme_rows(programme_rows)
+            )
 
     result = build_default_result(pdf_path, page_count, errors)
+    if metadata_fields:
+        result.metadata.state_name = metadata_fields["state_name"]
+        result.metadata.state_code = metadata_fields["state_code"]
+        result.metadata.budget_year = metadata_fields["budget_year"]
+        result.metadata.document_title = metadata_fields["document_title"]
+        result.metadata.currency = metadata_fields["currency"]
     if budget_totals is not None:
         result.budget_totals = budget_totals
     result.administrative_units = admin_units
     result.expenditure_mda = build_mda_groups(admin_units, parent_rows)
     result.revenue_breakdown = revenue_rows
     result.expenditure_economic = expenditure_rows
+    result.programme_projects = programme_rows
     output_path.write_text(
         json.dumps(asdict(result), ensure_ascii=True, indent=2),
         encoding="utf-8",

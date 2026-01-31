@@ -87,8 +87,17 @@ class MdaExpenditureRow:
 @dataclass
 class ProgrammeRow:
     sector: ExtractedField[str]
+    programme_code: ExtractedField[str]
     programme: ExtractedField[str]
     project_name: ExtractedField[str]
+    economic_code: ExtractedField[str]
+    economic_description: ExtractedField[str]
+    function_code: ExtractedField[str]
+    function_description: ExtractedField[str]
+    location_code: ExtractedField[str]
+    location_description: ExtractedField[str]
+    amounts: list[AmountItem]
+    amount_labels: list[str]
     amount: ExtractedField[float]
     funding_source: ExtractedField[str]
     page: Optional[int] = None

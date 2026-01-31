@@ -127,6 +127,21 @@ def validate_economic_rows(
     return errors
 
 
+def validate_programme_rows(rows: Iterable) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    for row in rows:
+        for item in getattr(row, "amounts", []):
+            if item.amount.value is None:
+                errors.append(
+                    ValidationError(
+                        code="programme_amount_missing",
+                        message=f"programme row missing amount: {row.line_text}",
+                    )
+                )
+                break
+    return errors
+
+
 def validate_economic_duplicates(
     revenue_rows: Iterable[RevenueRow],
     expenditure_rows: Iterable[EconomicExpenditureRow],
