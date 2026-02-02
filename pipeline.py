@@ -15,6 +15,7 @@ from engine.normalization import normalize_label
 from engine.programme_projects import extract_programme_projects
 from engine.receipts import extract_receipts
 from engine.review import build_review_report
+from engine.app_output import build_app_output
 from engine.schema import (
     AppropriationLaw,
     BudgetTotals,
@@ -168,6 +169,7 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     metrics_path = output_dir / "page_metrics.json"
     output_path = output_dir / "output.json"
     review_path = output_dir / "review.json"
+    app_output_path = output_dir / "app_output.json"
 
     errors: list[ExtractionError] = []
     target_year = ""
@@ -332,6 +334,10 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
         json.dumps(build_review_report(errors), ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
-    log("Wrote output.json and review.json")
+    app_output_path.write_text(
+        json.dumps(build_app_output(result), ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    log("Wrote output.json, app_output.json, and review.json")
 
     return output_path
