@@ -177,7 +177,10 @@ def _build_sectors(result: ExtractionResult) -> list[dict[str, object]]:
         amount = row.amount.value
         if amount is None:
             continue
-        sector_name = _sector_from_function(row.function_description.value)
+        sector_name = _sector_from_function(
+            row.function_code.value,
+            row.function_description.value,
+        )
         sector_totals[sector_name] += float(amount)
         row_counts[sector_name] += 1
 
@@ -194,7 +197,23 @@ def _build_sectors(result: ExtractionResult) -> list[dict[str, object]]:
     return sectors
 
 
-def _sector_from_function(function_desc: str | None) -> str:
+def _sector_from_function(function_code: str | None, function_desc: str | None) -> str:
+    if function_code:
+        prefix = function_code[:2]
+        code_map = {
+            "70": "General Public Services",
+            "71": "Defense/Public Order",
+            "72": "Economic Affairs",
+            "73": "Environment",
+            "74": "Housing/Community Amenities",
+            "75": "Health",
+            "76": "Recreation/Culture/Religion",
+            "77": "Education",
+            "78": "Social Protection",
+        }
+        if prefix in code_map:
+            return code_map[prefix]
+
     if not function_desc:
         return "Other"
     text = function_desc.lower()
@@ -208,7 +227,7 @@ def _sector_from_function(function_desc: str | None) -> str:
         ("Environment", ["environment", "climate", "waste"]),
         ("Housing", ["housing", "community amenities"]),
         ("Social Protection", ["social protection", "welfare", "poverty"]),
-        ("Security", ["security", "public order", "safety", "defence"]),
+        ("Defense/Public Order", ["security", "public order", "safety", "defence"]),
         ("Economic Affairs", ["economic affairs", "commerce", "industry", "labour"]),
         ("General Public Services", ["general services", "administration", "legislature"]),
         ("Recreation/Culture", ["recreation", "culture", "religion"]),

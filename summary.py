@@ -22,6 +22,8 @@ def extract_budget_summary(
     target_year: str,
 ) -> BudgetTotals:
     header_labels: list[str] = []
+    summary_heading: str | None = None
+    summary_heading_page: int | None = None
 
     # scan first page for summary header labels
     if pages:
@@ -36,6 +38,8 @@ def extract_budget_summary(
                 labels = infer_labels(header_lines)
                 if len(labels) > len(header_labels):
                     header_labels = labels
+                    summary_heading = line.strip()
+                    summary_heading_page = 1
 
     totals = {
         "total_budget": ExtractedField.null("not_extracted"),
@@ -85,7 +89,15 @@ def extract_budget_summary(
                 amount_value,
                 provenance=[Provenance(page=page_index, line_text=line.strip())],
             )
-            if totals["budget_summary_text"].value is None:
-                totals["budget_summary_text"] = ExtractedField.with_value(label_text)
+            if totals["budget_summary_text"].value is None and summary_heading:
+                totals["budget_summary_text"] = ExtractedField.with_value(
+                    summary_heading,
+                    provenance=[
+                        Provenance(
+                            page=summary_heading_page or 1,
+                            line_text=summary_heading,
+                        )
+                    ],
+                )
 
     return BudgetTotals(**totals)
