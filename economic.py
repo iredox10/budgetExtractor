@@ -294,6 +294,12 @@ def extract_economic_rows(
                             subcategory=subcategory_field,
                             amount=amount_field,
                             classification=ExtractedField.with_value("economic"),
+                            administrative_code=ExtractedField.null("not_extracted"),
+                            administrative_description=ExtractedField.null(
+                                "not_extracted"
+                            ),
+                            fund_code=ExtractedField.null("not_extracted"),
+                            fund_description=ExtractedField.null("not_extracted"),
                             page=page_index,
                             line_text=line.strip(),
                         )

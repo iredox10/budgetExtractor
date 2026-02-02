@@ -10,6 +10,7 @@ TITLE_PATTERNS = [
     re.compile(r"Approved\s+Budget", re.IGNORECASE),
     re.compile(r"Budget\s+Document", re.IGNORECASE),
     re.compile(r"Appropriation", re.IGNORECASE),
+    re.compile(r"Budget\s+Statement", re.IGNORECASE),
 ]
 
 TITLE_EXCLUDE = re.compile(
@@ -22,6 +23,8 @@ STATE_RE = re.compile(r"([A-Z][A-Z &.\-]+)\s+STATE", re.IGNORECASE)
 YEAR_RE = re.compile(r"(20\d{2})")
 STATE_CODE_RE = re.compile(r"State\s+Code\s*[:\-]\s*([A-Z]{2,4})", re.IGNORECASE)
 
+TITLE_KEYWORDS = ["state", "budget", "approved", "document", "appropriation"]
+
 
 def extract_metadata(pdf_path: Path, pages: list[str]) -> dict[str, ExtractedField[str]]:
     state_name = ExtractedField.null("not_extracted")
@@ -33,19 +36,15 @@ def extract_metadata(pdf_path: Path, pages: list[str]) -> dict[str, ExtractedFie
     title_line = ""
     title_page = None
 
-    for page_index, page_text in enumerate(pages[:2], start=1):
-        for line in page_text.splitlines():
-            stripped = line.strip()
-            if not stripped:
+    for page_index, page_text in enumerate(pages[:5], start=1):
+        lines = page_text.splitlines()
+        for idx, line in enumerate(lines):
+            candidate = _best_title_candidate(line, lines, idx)
+            if not candidate:
                 continue
-            if TITLE_EXCLUDE.search(stripped):
-                continue
-            if any(pattern.search(stripped) for pattern in TITLE_PATTERNS):
-                title_line = stripped
+            if not title_line or _score_title(candidate) > _score_title(title_line):
+                title_line = candidate
                 title_page = page_index
-                break
-        if title_line:
-            break
 
     if title_line and title_page is not None:
         document_title = ExtractedField.with_value(
@@ -66,7 +65,7 @@ def extract_metadata(pdf_path: Path, pages: list[str]) -> dict[str, ExtractedFie
                 provenance=[Provenance(page=title_page, line_text=title_line)],
             )
 
-    for page_index, page_text in enumerate(pages[:3], start=1):
+    for page_index, page_text in enumerate(pages[:5], start=1):
         for line in page_text.splitlines():
             stripped = line.strip()
             if not stripped:
@@ -80,7 +79,7 @@ def extract_metadata(pdf_path: Path, pages: list[str]) -> dict[str, ExtractedFie
         if currency.value is not None:
             break
 
-    for page_index, page_text in enumerate(pages[:2], start=1):
+    for page_index, page_text in enumerate(pages[:3], start=1):
         for line in page_text.splitlines():
             match = STATE_CODE_RE.search(line)
             if match:
@@ -118,3 +117,37 @@ def extract_metadata(pdf_path: Path, pages: list[str]) -> dict[str, ExtractedFie
         "document_title": document_title,
         "currency": currency,
     }
+
+
+def _best_title_candidate(line: str, lines: list[str], index: int) -> str:
+    stripped = line.strip()
+    if not stripped:
+        return ""
+    if TITLE_EXCLUDE.search(stripped):
+        return ""
+    if any(pattern.search(stripped) for pattern in TITLE_PATTERNS) or _score_title(stripped) >= 4:
+        return stripped
+    if index + 1 < len(lines):
+        combined = f"{stripped} {lines[index + 1].strip()}".strip()
+        if TITLE_EXCLUDE.search(combined):
+            return ""
+        if any(pattern.search(combined) for pattern in TITLE_PATTERNS) or _score_title(combined) >= 4:
+            return combined
+    return ""
+
+
+def _score_title(text: str) -> int:
+    lower = text.lower()
+    score = 0
+    for keyword in TITLE_KEYWORDS:
+        if keyword in lower:
+            score += 2
+    if "state" in lower:
+        score += 2
+    if "approved" in lower:
+        score += 1
+    if "budget" in lower:
+        score += 1
+    if TITLE_EXCLUDE.search(text):
+        score -= 3
+    return score

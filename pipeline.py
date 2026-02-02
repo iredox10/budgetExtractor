@@ -11,7 +11,10 @@ from engine.economic import extract_economic_rows
 from engine.extract_text import extract_fulltext, get_page_count, split_pages
 from engine.metadata import extract_metadata
 from engine.metrics import compute_page_metrics
+from engine.normalization import normalize_label
 from engine.programme_projects import extract_programme_projects
+from engine.receipts import extract_receipts
+from engine.review import build_review_report
 from engine.schema import (
     AppropriationLaw,
     BudgetTotals,
@@ -29,7 +32,10 @@ from engine.validation import (
     validate_economic_rows,
     validate_economic_duplicates,
     validate_economic_hierarchy,
+    validate_budget_components,
+    validate_global_reconciliation,
     validate_programme_rows,
+    validate_metadata_consistency,
     validate_mda_reconciliation,
     validate_page_count,
 )
@@ -151,9 +157,17 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
 
     ensure_dir(output_dir)
 
+    log_path = output_dir / "run.log"
+
+    def log(message: str) -> None:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(message + "\n")
+        print(message)
+
     text_path = output_dir / "text.txt"
     metrics_path = output_dir / "page_metrics.json"
     output_path = output_dir / "output.json"
+    review_path = output_dir / "review.json"
 
     errors: list[ExtractionError] = []
     target_year = ""
@@ -161,16 +175,23 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     if year_match:
         target_year = year_match.group(1)
 
+    log("Starting extraction pipeline")
     page_count, page_error = get_page_count(pdf_path)
     if page_error:
         errors.append(ExtractionError(code="pdfinfo_failed", message=page_error))
+    else:
+        log(f"Detected page count: {page_count}")
 
     if not errors:
-        extract_error = extract_fulltext(pdf_path, text_path)
-        if extract_error:
-            errors.append(
-                ExtractionError(code="pdftotext_failed", message=extract_error)
-            )
+        if text_path.exists() and text_path.stat().st_size > 0:
+            log("Using existing text.txt")
+        else:
+            log("Extracting text with pdftotext")
+            extract_error = extract_fulltext(pdf_path, text_path)
+            if extract_error:
+                errors.append(
+                    ExtractionError(code="pdftotext_failed", message=extract_error)
+                )
 
     pages: list[str] = []
     admin_units = []
@@ -180,31 +201,39 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     programme_rows = []
     budget_totals = None
     metadata_fields = None
+    mda_rows = []
+    receipt_rows = []
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
-        metrics = compute_page_metrics(pages)
-        metrics_path.write_text(
-            json.dumps(
-                {
-                    "file": pdf_path.name,
-                    "pages_expected": page_count,
-                    "pages_extracted": len(pages),
-                    "per_page": metrics,
-                },
-                ensure_ascii=True,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        if metrics_path.exists():
+            log("Using existing page_metrics.json")
+        else:
+            log("Computing page metrics")
+            metrics = compute_page_metrics(pages)
+            metrics_path.write_text(
+                json.dumps(
+                    {
+                        "file": pdf_path.name,
+                        "pages_expected": page_count,
+                        "pages_extracted": len(pages),
+                        "per_page": metrics,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
         validation_errors = validate_page_count(page_count, len(pages))
         errors.extend(
             ExtractionError(code=err.code, message=err.message)
             for err in validation_errors
         )
+        log("Page validation complete")
 
         metadata_fields = extract_metadata(pdf_path, pages)
+        log("Metadata extraction complete")
 
         admin_units, parent_rows, _ = extract_admin_units(pages)
         errors.extend(
@@ -215,6 +244,8 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             ExtractionError(code=err.code, message=err.message)
             for err in validate_mda_reconciliation(parent_rows, admin_units)
         )
+        mda_rows = build_mda_groups(admin_units, parent_rows)
+        log("Administrative units extraction complete")
 
         if target_year:
             revenue_rows, expenditure_rows, conflicts = extract_economic_rows(
@@ -238,10 +269,40 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
             )
             budget_totals = extract_budget_summary(pages, target_year)
             programme_rows = extract_programme_projects(pages, target_year)
+            receipt_rows = extract_receipts(pages, target_year)
+            log("Economic, programme, and receipt extraction complete")
             errors.extend(
                 ExtractionError(code=err.code, message=err.message)
                 for err in validate_programme_rows(programme_rows)
             )
+
+            for row in programme_rows:
+                if row.sector.value:
+                    row.sector = ExtractedField.with_value(
+                        normalize_label(row.sector.value),
+                        provenance=row.sector.provenance,
+                    )
+                if row.objective.value:
+                    row.objective = ExtractedField.with_value(
+                        normalize_label(row.objective.value),
+                        provenance=row.objective.provenance,
+                    )
+
+            if budget_totals is not None:
+                errors.extend(
+                    ExtractionError(code=err.code, message=err.message)
+                    for err in validate_budget_components(budget_totals)
+                )
+                errors.extend(
+                    ExtractionError(code=err.code, message=err.message)
+                    for err in validate_global_reconciliation(
+                        budget_totals,
+                        revenue_rows,
+                        expenditure_rows,
+                        mda_rows,
+                        programme_rows,
+                    )
+                )
 
     result = build_default_result(pdf_path, page_count, errors)
     if metadata_fields:
@@ -250,16 +311,27 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
         result.metadata.budget_year = metadata_fields["budget_year"]
         result.metadata.document_title = metadata_fields["document_title"]
         result.metadata.currency = metadata_fields["currency"]
+        errors.extend(
+            ExtractionError(code=err.code, message=err.message)
+            for err in validate_metadata_consistency(result.metadata, pdf_path)
+        )
     if budget_totals is not None:
         result.budget_totals = budget_totals
     result.administrative_units = admin_units
-    result.expenditure_mda = build_mda_groups(admin_units, parent_rows)
+    result.expenditure_mda = mda_rows
     result.revenue_breakdown = revenue_rows
+    if receipt_rows:
+        result.revenue_breakdown.extend(receipt_rows)
     result.expenditure_economic = expenditure_rows
     result.programme_projects = programme_rows
     output_path.write_text(
         json.dumps(asdict(result), ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
+    review_path.write_text(
+        json.dumps(build_review_report(errors), ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    log("Wrote output.json and review.json")
 
     return output_path

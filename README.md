@@ -39,8 +39,11 @@ python /home/iredox/Desktop/scrapers/budgets/run_ui.py
 - `output.json` (contract-shaped output with null+reason for missing fields)
 - `text.txt` (layout-preserved full text)
 - `page_metrics.json` (per-page layout metrics)
+- `review.json` (error summary and taxonomy for review)
+- `run.log` (pipeline progress log)
 
 ## Notes
 - OCR is deferred. Native text extraction is used first.
 - The engine fails closed: uncertain fields are null with a reason.
 - Administrative units are emitted as a flat list and nested under parent MDAs.
+- If `text.txt` or `page_metrics.json` already exist, the pipeline reuses them.

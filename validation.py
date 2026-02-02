@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 from engine.admin_units import ParentRow
 from engine.economic import EconomicConflict
-from engine.schema import AdministrativeUnit, EconomicExpenditureRow, RevenueRow
+from engine.schema import AdministrativeUnit, BudgetTotals, EconomicExpenditureRow, RevenueRow
 
 
 @dataclass
@@ -139,6 +141,149 @@ def validate_programme_rows(rows: Iterable) -> list[ValidationError]:
                     )
                 )
                 break
+    return errors
+
+
+def validate_budget_components(budget_totals: BudgetTotals) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    total = budget_totals.total_budget.value
+    capital = budget_totals.capital_expenditure_total.value
+    recurrent = budget_totals.recurrent_expenditure_total.value
+    if total is None or capital is None or recurrent is None:
+        return errors
+    if abs(total - (capital + recurrent)) > 1.0:
+        errors.append(
+            ValidationError(
+                code="budget_totals_mismatch",
+                message=(
+                    f"total budget {total} != capital {capital} + recurrent {recurrent}"
+                ),
+            )
+        )
+    return errors
+
+
+def validate_global_reconciliation(
+    budget_totals: BudgetTotals,
+    revenue_rows: Iterable[RevenueRow],
+    expenditure_rows: Iterable[EconomicExpenditureRow],
+    mda_rows: Iterable,
+    programme_rows: Iterable,
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    tolerance = 1.0
+
+    def leaf_sum(rows: Iterable) -> float | None:
+        mapping: dict[str, float] = {}
+        for row in rows:
+            code = row.code.value
+            amount = row.amount.value
+            if not code or amount is None:
+                continue
+            if code not in mapping:
+                mapping[code] = float(amount)
+
+        if not mapping:
+            return None
+
+        leaf_codes = []
+        for code in mapping:
+            if not any(
+                other.startswith(code) and len(other) > len(code) for other in mapping
+            ):
+                leaf_codes.append(code)
+        if not leaf_codes:
+            return None
+        return sum(mapping[code] for code in leaf_codes)
+
+    total_budget = budget_totals.total_budget.value
+    if total_budget is not None:
+        exp_sum = leaf_sum(expenditure_rows)
+        if exp_sum is not None and abs(total_budget - exp_sum) > tolerance:
+            errors.append(
+                ValidationError(
+                    code="global_expenditure_mismatch",
+                    message=(
+                        f"total budget {total_budget} != economic expenditure {round(exp_sum, 2)}"
+                    ),
+                )
+            )
+
+        mda_totals = [
+            row.total_amount.value for row in mda_rows if row.total_amount.value is not None
+        ]
+        if mda_totals and len(mda_totals) == len(list(mda_rows)):
+            mda_sum = sum(float(value) for value in mda_totals)
+            if abs(total_budget - mda_sum) > tolerance:
+                errors.append(
+                    ValidationError(
+                        code="global_mda_mismatch",
+                        message=(
+                            f"total budget {total_budget} != mda total {round(mda_sum, 2)}"
+                        ),
+                    )
+                )
+
+        programme_values = [
+            row.amount.value for row in programme_rows if row.amount.value is not None
+        ]
+        if programme_values and len(programme_values) == len(list(programme_rows)):
+            programme_sum = sum(float(value) for value in programme_values)
+            if abs(total_budget - programme_sum) > tolerance:
+                errors.append(
+                    ValidationError(
+                        code="global_programme_mismatch",
+                        message=(
+                            f"total budget {total_budget} != programme total {round(programme_sum, 2)}"
+                        ),
+                    )
+                )
+
+    revenue_total = budget_totals.revenue_total.value
+    if revenue_total is not None:
+        rev_sum = leaf_sum(revenue_rows)
+        if rev_sum is not None and abs(revenue_total - rev_sum) > tolerance:
+            errors.append(
+                ValidationError(
+                    code="global_revenue_mismatch",
+                    message=(
+                        f"total revenue {revenue_total} != economic revenue {round(rev_sum, 2)}"
+                    ),
+                )
+            )
+
+    return errors
+
+
+def validate_metadata_consistency(metadata, pdf_path: Path) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    file_year = None
+    match = re.search(r"(20\d{2})", pdf_path.name)
+    if match:
+        file_year = match.group(1)
+    if file_year and metadata.budget_year.value and file_year != metadata.budget_year.value:
+        errors.append(
+            ValidationError(
+                code="metadata_year_mismatch",
+                message=(
+                    f"filename year {file_year} != extracted year {metadata.budget_year.value}"
+                ),
+            )
+        )
+
+    if "_" in pdf_path.stem:
+        file_state = pdf_path.stem.split("_", 1)[0].strip().lower()
+        if metadata.state_name.value and file_state:
+            extracted_state = metadata.state_name.value.lower()
+            if file_state not in extracted_state and extracted_state not in file_state:
+                errors.append(
+                    ValidationError(
+                        code="metadata_state_mismatch",
+                        message=(
+                            f"filename state {file_state} != extracted state {extracted_state}"
+                        ),
+                    )
+                )
     return errors
 
 

@@ -58,6 +58,10 @@ class RevenueRow:
     subcategory: ExtractedField[str]
     amount: ExtractedField[float]
     classification: ExtractedField[str]
+    administrative_code: ExtractedField[str]
+    administrative_description: ExtractedField[str]
+    fund_code: ExtractedField[str]
+    fund_description: ExtractedField[str]
     page: Optional[int] = None
     line_text: Optional[str] = None
 
@@ -87,6 +91,7 @@ class MdaExpenditureRow:
 @dataclass
 class ProgrammeRow:
     sector: ExtractedField[str]
+    objective: ExtractedField[str]
     programme_code: ExtractedField[str]
     programme: ExtractedField[str]
     project_name: ExtractedField[str]

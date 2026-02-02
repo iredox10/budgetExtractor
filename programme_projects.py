@@ -15,6 +15,7 @@ PROJECT_HEADER_RE = re.compile(r"Project Description", re.IGNORECASE)
 PROGRAM_CODE_RE = re.compile(r"^\s*(\d{11,14})\s*-\s*(.+)$")
 ECON_COL_RE = re.compile(r"^\s*(\d{8})\s*-\s*(.+)$")
 FUNC_COL_RE = re.compile(r"^\s*(\d{5})\s*-\s*(.+)$")
+FUND_COL_RE = re.compile(r"^\s*(\d{2,8})\s*-\s*(.+)$")
 LOC_COL_RE = re.compile(r"^\s*(\d{8})\s*-\s*(.+)$")
 
 HEADER_CONTEXT_KEYWORDS = [
@@ -27,6 +28,12 @@ HEADER_CONTEXT_KEYWORDS = [
     "performance",
     "january to",
 ]
+
+SECTOR_RE = re.compile(r"\bsector\b", re.IGNORECASE)
+OBJECTIVE_RE = re.compile(r"\bobjective\b", re.IGNORECASE)
+OBJECTIVE_LINE_RE = re.compile(r"^[A-Za-z].{0,80}\s-\s[A-Za-z].*$")
+
+FUND_HEADER_RE = re.compile(r"Fund Code|Funding Source", re.IGNORECASE)
 
 
 def is_header_context_line(line: str) -> bool:
@@ -92,6 +99,9 @@ def extract_programme_projects(
     project_buffer: list[str] = []
     labels: list[str] = []
     target_index: Optional[int] = None
+    has_fund_column = False
+    current_sector: Optional[str] = None
+    current_objective: Optional[str] = None
 
     for page_index, page_text in enumerate(pages, start=1):
         lines = page_text.splitlines()
@@ -111,10 +121,14 @@ def extract_programme_projects(
                         header_lines.append(lines[line_index + offset])
                 labels = infer_labels(header_lines)
                 target_index = select_target_label(labels, target_year)
+                header_columns = split_columns(line)
+                has_fund_column = any(FUND_HEADER_RE.search(col) for col in header_columns)
                 current_program_code = None
                 current_program_desc = ""
                 program_continuation = []
                 project_buffer = []
+                current_sector = None
+                current_objective = None
                 line_index += 1
                 continue
 
@@ -125,6 +139,23 @@ def extract_programme_projects(
             if not line.strip() or line.strip().lower() == "total":
                 line_index += 1
                 continue
+
+            if not PROGRAM_CODE_RE.match(line) and not ECON_COL_RE.match(line):
+                if SECTOR_RE.search(line) and not re.search(r"\d", line):
+                    if _is_short_label(line):
+                        current_sector = _trim_label(line)
+                        line_index += 1
+                        continue
+                if OBJECTIVE_RE.search(line) and not re.search(r"\d", line):
+                    if _is_short_label(line):
+                        current_objective = _trim_label(line)
+                        line_index += 1
+                        continue
+                if OBJECTIVE_LINE_RE.match(line) and not re.search(r"\d", line):
+                    if _is_short_label(line):
+                        current_objective = _trim_label(line)
+                        line_index += 1
+                        continue
 
             program_line = parse_program_line(line)
             columns = split_columns(line)
@@ -166,6 +197,9 @@ def extract_programme_projects(
                             program_continuation.append(columns[0])
                         else:
                             project_buffer.append(columns[0])
+                    if OBJECTIVE_RE.search(columns[0]) and not re.search(r"\d", columns[0]):
+                        if _is_short_label(columns[0]):
+                            current_objective = _trim_label(columns[0])
                 line_index += 1
                 continue
 
@@ -179,14 +213,27 @@ def extract_programme_projects(
 
             econ_col = columns[econ_index]
             func_col = columns[econ_index + 1] if len(columns) > econ_index + 1 else ""
-            loc_col = columns[econ_index + 2] if len(columns) > econ_index + 2 else ""
-            amount_cols = columns[econ_index + 3 :]
+            fund_col = ""
+            loc_col = ""
+            if has_fund_column:
+                fund_col = columns[econ_index + 2] if len(columns) > econ_index + 2 else ""
+                loc_col = columns[econ_index + 3] if len(columns) > econ_index + 3 else ""
+                amount_cols = columns[econ_index + 4 :]
+            else:
+                loc_col = columns[econ_index + 2] if len(columns) > econ_index + 2 else ""
+                amount_cols = columns[econ_index + 3 :]
 
             econ_parsed = parse_code_desc(econ_col, ECON_COL_RE)
             func_parsed = parse_code_desc(func_col, FUNC_COL_RE)
             loc_parsed = parse_code_desc(loc_col, LOC_COL_RE)
+            fund_parsed = None
+            if has_fund_column:
+                fund_parsed = parse_code_desc(fund_col, FUND_COL_RE)
 
             if not econ_parsed or not func_parsed or not loc_parsed:
+                line_index += 1
+                continue
+            if has_fund_column and not fund_parsed:
                 line_index += 1
                 continue
 
@@ -230,7 +277,26 @@ def extract_programme_projects(
 
             rows.append(
                 ProgrammeRow(
-                    sector=ExtractedField.null("not_extracted"),
+                    sector=(
+                        ExtractedField.with_value(
+                            current_sector,
+                            provenance=[
+                                Provenance(page=page_index, line_text=line.strip())
+                            ],
+                        )
+                        if current_sector
+                        else ExtractedField.null("not_extracted")
+                    ),
+                    objective=(
+                        ExtractedField.with_value(
+                            current_objective,
+                            provenance=[
+                                Provenance(page=page_index, line_text=line.strip())
+                            ],
+                        )
+                        if current_objective
+                        else ExtractedField.null("not_extracted")
+                    ),
                     programme_code=ExtractedField.with_value(current_program_code),
                     programme=ExtractedField.with_value(program_desc),
                     project_name=ExtractedField.with_value(project_desc),
@@ -252,7 +318,16 @@ def extract_programme_projects(
                         if amount_value is not None
                         else ExtractedField.null("not_extracted")
                     ),
-                    funding_source=ExtractedField.null("not_extracted"),
+                    funding_source=(
+                        ExtractedField.with_value(
+                            f"{fund_parsed[0]} - {fund_parsed[1]}",
+                            provenance=[
+                                Provenance(page=page_index, line_text=line.strip())
+                            ],
+                        )
+                        if fund_parsed
+                        else ExtractedField.null("not_extracted")
+                    ),
                     page=page_index,
                     line_text=line.strip(),
                 )
@@ -266,3 +341,19 @@ def extract_programme_projects(
             line_index += 1
 
     return rows
+
+
+def _is_short_label(line: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", line.strip())
+    if not cleaned:
+        return False
+    if any(token in cleaned.lower() for token in ["programme", "project"]):
+        return False
+    if len(cleaned) > 60:
+        return False
+    words = cleaned.split(" ")
+    return 1 <= len(words) <= 6
+
+
+def _trim_label(line: str) -> str:
+    return re.split(r"\s{2,}", line.strip())[0]
