@@ -16,6 +16,7 @@ from engine.programme_projects import extract_programme_projects
 from engine.receipts import extract_receipts
 from engine.review import build_review_report
 from engine.app_output import build_app_output
+from engine.functional import extract_functional_classification
 from engine.schema import (
     AppropriationLaw,
     BudgetTotals,
@@ -202,9 +203,11 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
     expenditure_rows = []
     programme_rows = []
     budget_totals = None
+    summary_context = None
     metadata_fields = None
     mda_rows = []
     receipt_rows = []
+    functional_rows = []
     if not errors and text_path.exists():
         text = text_path.read_text(encoding="utf-8", errors="replace")
         pages = split_pages(text)
@@ -269,9 +272,10 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
                 ExtractionError(code=err.code, message=err.message)
                 for err in validate_economic_hierarchy(revenue_rows, expenditure_rows)
             )
-            budget_totals = extract_budget_summary(pages, target_year)
+            budget_totals, summary_context = extract_budget_summary(pages, target_year)
             programme_rows = extract_programme_projects(pages, target_year)
             receipt_rows = extract_receipts(pages, target_year)
+            functional_rows = extract_functional_classification(pages, target_year)
             log("Economic, programme, and receipt extraction complete")
             errors.extend(
                 ExtractionError(code=err.code, message=err.message)
@@ -303,6 +307,7 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
                         expenditure_rows,
                         mda_rows,
                         programme_rows,
+                        "recurrent_revenue" if summary_context.recurrent_revenue else None,
                     )
                 )
 
@@ -335,7 +340,7 @@ def run_pipeline(pdf_path: Path, output_dir: Path, overwrite: bool = False) -> P
         encoding="utf-8",
     )
     app_output_path.write_text(
-        json.dumps(build_app_output(result), ensure_ascii=True, indent=2),
+        json.dumps(build_app_output(result, functional_rows), ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
     log("Wrote output.json, app_output.json, and review.json")

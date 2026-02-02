@@ -169,6 +169,7 @@ def validate_global_reconciliation(
     expenditure_rows: Iterable[EconomicExpenditureRow],
     mda_rows: Iterable,
     programme_rows: Iterable,
+    revenue_reference: str | None = None,
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     tolerance = 1.0
@@ -240,6 +241,8 @@ def validate_global_reconciliation(
                 )
 
     revenue_total = budget_totals.revenue_total.value
+    if revenue_reference == "recurrent_revenue":
+        revenue_total = budget_totals.revenue_total.value
     if revenue_total is not None:
         rev_sum = leaf_sum(revenue_rows)
         if rev_sum is not None and abs(revenue_total - rev_sum) > tolerance:

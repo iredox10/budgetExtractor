@@ -6,7 +6,10 @@ from pathlib import Path
 from engine.schema import ExtractedField, ExtractionResult
 
 
-def build_app_output(result: ExtractionResult) -> dict[str, object]:
+def build_app_output(
+    result: ExtractionResult,
+    functional_rows: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
     return {
         "metadata": _flatten_metadata(result),
         "budget_totals": _flatten_budget_totals(result),
@@ -22,7 +25,7 @@ def build_app_output(result: ExtractionResult) -> dict[str, object]:
         "programme_projects": [
             _flatten_programme(row) for row in result.programme_projects
         ],
-        "sectors": _build_sectors(result),
+        "sectors": _build_sectors(result, functional_rows or []),
         "errors": [
             {"code": error.code, "message": error.message} for error in result.errors
         ],
@@ -169,7 +172,26 @@ def _compute_igr(result: ExtractionResult) -> float | None:
     return sum(candidates)
 
 
-def _build_sectors(result: ExtractionResult) -> list[dict[str, object]]:
+def _build_sectors(
+    result: ExtractionResult,
+    functional_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if functional_rows:
+        sectors = []
+        for row in functional_rows:
+            amount = _field_value(row["amount"])
+            if amount is None:
+                continue
+            sectors.append(
+                {
+                    "name": row["description"],
+                    "amount": amount,
+                    "row_count": 1,
+                    "source": "functional_classification",
+                }
+            )
+        return sectors
+
     sector_totals: dict[str, float] = defaultdict(float)
     row_counts: dict[str, int] = defaultdict(int)
 
