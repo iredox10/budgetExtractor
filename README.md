@@ -11,23 +11,25 @@ Deterministic, fail-closed extraction pipeline for single-state budget PDFs.
 From the repo root:
 
 ```bash
-python -m engine.cli --input "<path-to-pdf>"
+python -m engine.apps.cli --input "<path-to-pdf>"
 ```
 
 Optional output directory:
 
 ```bash
-python -m engine.cli --input "<path-to-pdf>" --output-dir "analysis/engine_runs/<run-name>"
+python -m engine.apps.cli --input "<path-to-pdf>" --output-dir "analysis/engine_runs/<run-name>"
 ```
 
 ## UI
 Launch the local UI:
 
 ```bash
-python -m engine.ui
+python -m engine.apps.ui
 ```
 
 Use the UI to select a PDF and an output folder, then run extraction.
+The UI creates a subfolder named `<state>_<year>` in the selected output folder
+and copies the source PDF as `source.pdf` inside that folder.
 
 If you run from outside the repo root:
 
