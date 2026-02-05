@@ -1,0 +1,9 @@
+Starting extraction pipeline
+Detected page count: 589
+Extracting text with pdftotext
+Computing page metrics
+Page validation complete
+Metadata extraction complete
+Administrative units extraction complete
+Economic, programme, and receipt extraction complete
+Wrote output.json, app_output.json, and review.json

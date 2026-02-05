@@ -1,0 +1,19 @@
+{
+  "error_count": 3,
+  "error_codes": {
+    "global_expenditure_mismatch": 1,
+    "global_mda_mismatch": 1,
+    "global_revenue_mismatch": 1
+  },
+  "messages": {
+    "global_expenditure_mismatch": [
+      "total budget 719755417663.0 != economic expenditure 602668650303.06"
+    ],
+    "global_mda_mismatch": [
+      "total budget 719755417663.0 != mda total 1439510835325.98"
+    ],
+    "global_revenue_mismatch": [
+      "total revenue 719755417663.0 != economic revenue 616839460412.26"
+    ]
+  }
+}

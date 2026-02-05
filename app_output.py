@@ -9,6 +9,7 @@ from engine.schema import ExtractedField, ExtractionResult
 def build_app_output(
     result: ExtractionResult,
     functional_rows: list[dict[str, object]] | None = None,
+    sections: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "metadata": _flatten_metadata(result),
@@ -26,6 +27,7 @@ def build_app_output(
             _flatten_programme(row) for row in result.programme_projects
         ],
         "sectors": _build_sectors(result, functional_rows or []),
+        "sections": sections or {},
         "errors": [
             {"code": error.code, "message": error.message} for error in result.errors
         ],

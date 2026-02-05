@@ -40,6 +40,7 @@ python /home/iredox/Desktop/scrapers/budgets/run_ui.py
 ## Output
 - `output.json` (contract-shaped output with null+reason for missing fields)
 - `app_output.json` (flattened adapter output for app UI)
+- `sections.json` (section order + classification scheme)
 - `text.txt` (layout-preserved full text)
 - `page_metrics.json` (per-page layout metrics)
 - `review.json` (error summary and taxonomy for review)

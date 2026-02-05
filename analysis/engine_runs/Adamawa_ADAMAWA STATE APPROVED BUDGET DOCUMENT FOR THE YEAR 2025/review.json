@@ -1,0 +1,40 @@
+{
+  "error_count": 24,
+  "error_codes": {
+    "mda_reconciliation_failed": 4,
+    "economic_conflicting_code": 18,
+    "economic_reconciliation_failed": 2
+  },
+  "messages": {
+    "mda_reconciliation_failed": [
+      "parent 016100000000 overhead expected 7672989010.0 got 7658089000.0",
+      "parent 016100000000 total_recurrent expected 11985359610.0 got 11970459600.0",
+      "parent 016100000000 capital expected 40040700000.0 got 39040700000.0",
+      "parent 016100000000 total_expenditure expected 52026059610.0 got 51011159600.0"
+    ],
+    "economic_conflicting_code": [
+      "expenditure code 2 amounts 1105538120.0 vs 2745973120.0",
+      "expenditure code 21 amounts 466179400.0 vs 185482600.0",
+      "expenditure code 2101 amounts 417654300.0 vs 112605800.0",
+      "expenditure code 210101 amounts 417654300.0 vs 112605800.0",
+      "expenditure code 21010101 amounts 417654300.0 vs 112605800.0",
+      "expenditure code 2102 amounts 48525100.0 vs 72876800.0",
+      "expenditure code 210201 amounts 48525100.0 vs 72876800.0",
+      "expenditure code 21020102 amounts 2676200.0 vs 25042700.0",
+      "expenditure code 21020103 amounts 1344800.0 vs 9065000.0",
+      "expenditure code 21020104 amounts 17400.0 vs 1530000.0",
+      "expenditure code 21020105 amounts 47800.0 vs 4315500.0",
+      "expenditure code 21020107 amounts 138000.0 vs 10266100.0",
+      "expenditure code 21020145 amounts 20291100.0 vs 18190600.0",
+      "expenditure code 22 amounts 98092520.0 vs 76401200.0",
+      "expenditure code 2202 amounts 98092520.0 vs 76401200.0",
+      "expenditure code 220201 amounts 10274600.0 vs 8179600.0",
+      "expenditure code 22020101 amounts 1013200.0 vs 6079800.0",
+      "expenditure code 22020102 amounts 602000.0 vs 903000.0"
+    ],
+    "economic_reconciliation_failed": [
+      "revenue code 1 expected 142715029044.49 got 100315029044.49",
+      "expenditure code 2 expected 1105538120.0 got 564271920.0"
+    ]
+  }
+}
